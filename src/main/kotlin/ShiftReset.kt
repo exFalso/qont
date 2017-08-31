@@ -85,13 +85,9 @@ fun <R> reset_(block: SuspendableBlock<ResetToken<R>, R>): R {
     return if (block == block) {
         val stack = getFiberStack(Fiber.currentFiber())
         val resetOffset = getStackPointer(stack) - 1
-        println("reset_ RECORD ${prettyRecord(getPrimitiveStack(stack)[resetOffset])}")
-        println("execute RECORD ${prettyRecord(getPrimitiveStack(stack).getOrNull(resetOffset - 3))}")
-        println("about to execute")
-        block.execute(ResetToken(resetOffset))
+        block.invoke(ResetToken(resetOffset))
     } else {
         Fiber.yield()
-        println("reset_ jump")
         val shiftToken = SHIFT_TOKEN.get() as ShiftToken<R>
         val stack = getFiberStack(Fiber.currentFiber())
         val resetOffset = getStackPointer(stack) - 1
@@ -103,8 +99,8 @@ fun <R> reset_(block: SuspendableBlock<ResetToken<R>, R>): R {
         val primitiveSubStack = primitiveStack.copyOfRange(resetOffset, usedStackSize)
         val objectSubStack = objectStack.copyOfRange(resetOffset, usedStackSize)
         primitiveSubStack[shiftToken.stackOffset - resetOffset] = setEntry(shiftRecord, getEntry(shiftRecord) + 1)
-        primitiveSubStack[0] = setEntry(resetRecord, getEntry(resetRecord) - 1)
-        return shiftToken.block.execute(ResumeBlock<Any?, R>(block, primitiveSubStack, objectSubStack))
+        primitiveSubStack[0] = setPrevNumSlots(setEntry(resetRecord, getEntry(resetRecord) - 1), 0)
+        return shiftToken.block.invoke(ResumeBlock<Any?, R>(block, primitiveSubStack, objectSubStack))
     }
 }
 
@@ -115,7 +111,7 @@ class ResumeBlock<A, R>(
 ) : SuspendableBlock<A, R> {
 
     @Suspendable
-    override fun execute(argument: A): R {
+    override fun invoke(argument: A): R {
         if (block == block) {
             jumpIntoReset(argument)
         } else {
@@ -131,7 +127,8 @@ class ResumeBlock<A, R>(
         val executeStackOffset = getStackPointer(stack) - 1
 
         val resetStackOffset = executeStackOffset + 1
-        primitiveStack[executeStackOffset] = setPrevNumSlots(setNumSlots(setEntry(0, 1), 0), 10)
+        // 1125899906842624
+        primitiveStack[executeStackOffset] = setPrevNumSlots(setNumSlots(setEntry(0, 1), 0), 0)
         SHIFT_RESULT.set(argument)
         System.arraycopy(shiftPrimitiveStack, 0, primitiveStack, resetStackOffset, shiftPrimitiveStack.size)
         System.arraycopy(shiftObjectStack, 0, objectStack, resetStackOffset, shiftObjectStack.size)
@@ -168,10 +165,44 @@ fun <A, R> ResetToken<R>.shift_(block: SuspendableBlock<SuspendableBlock<A, R>, 
     }
 }
 
+class ListMonad<out A>(
+        private val resetToken: ResetToken<List<A>>
+) {
+    @Suspendable
+    fun <B> bind(list: List<B>): B {
+        return Qont.shift(resetToken) @Suspendable { cont ->
+            list.flatMap { cont(it) }
+        }
+    }
+}
+
+inline fun <A> listM(crossinline block: ListMonad<A>.() -> List<A>): List<A> {
+    return Qont.reset @Suspendable { block(ListMonad(it)) }
+}
+
+var fiber: Fiber<*>? = null
 fun main(args: Array<String>) {
     val scheduler = FiberForkJoinScheduler("fiber-scheduler", 8)
     scheduler.newFiber @Suspendable {
-        val a: String = Qont.reset @Suspendable { "hello" + Qont.shift(it) @Suspendable { it.execute("bello") } }
-        println(a)
+        fiber = Fiber.currentFiber()
+
+        val strings = listM<String> {
+            val number = bind(listOf(1, 2, 3))
+            listOf(number.toString())
+        }
+
+        println(strings)
+
+        val result = Qont.reset<Int> @Suspendable {
+            val str = 1 +
+                    Qont.shift<Int, Int>(it) @Suspendable { cont ->
+                        val bello = cont(2)
+                        val chello = cont(3)
+                        bello + chello
+                    }
+            println(str)
+            str
+        }
+        println(result)
     }.start().get()
 }

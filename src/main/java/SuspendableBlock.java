@@ -4,5 +4,5 @@ import co.paralleluniverse.fibers.Suspendable;
 @FunctionalInterface
 public interface SuspendableBlock<A, R> extends java.io.Serializable {
     @Suspendable
-    R execute(A arg0) throws SuspendExecution, InterruptedException;
+    R invoke(A arg0) throws SuspendExecution, InterruptedException;
 }
