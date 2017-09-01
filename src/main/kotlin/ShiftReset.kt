@@ -1,21 +1,21 @@
 import co.paralleluniverse.fibers.*
 
-/**
- * @param stackOffset The stack offset of the reset() frame
- */
-data class ResetToken<R>(
+class ResetToken<out R>
+
+data class ResetData(
         internal val stackOffset: Int
 )
 
 /**
  * @param stackOffset The stack offset of the shift() frame
  */
-data class ShiftToken<R>(
+data class ShiftData<R>(
         internal val stackOffset: Int,
         internal val block: SuspendableBlock<SuspendableBlock<*, R>, R>
 )
 
-private val SHIFT_TOKEN = ThreadLocal<ShiftToken<Any?>>()
+private val SHIFT_DATA = ThreadLocal<ShiftData<Any?>>()
+private val RESET_DATA = ThreadLocal<ResetData>()
 private val SHIFT_RESULT = ThreadLocal<Any?>()
 
 data class ShiftResumption<A, out R>(
@@ -83,12 +83,11 @@ private fun getUnsignedBits(word: Long, offset: Int, length: Int): Long {
 fun <R> reset_(block: SuspendableBlock<ResetToken<R>, R>): R {
 //    println("reset_ called")
     return if (block == block) {
-        val stack = getFiberStack(Fiber.currentFiber())
-        val resetOffset = getStackPointer(stack) - 1
-        block.invoke(ResetToken(resetOffset))
+        RESET_DATA.set(ResetData(getStackPointer(getFiberStack(Fiber.currentFiber())) - 1))
+        block.invoke(ResetToken())
     } else {
         Fiber.yield()
-        val shiftToken = SHIFT_TOKEN.get() as ShiftToken<R>
+        val shiftToken = SHIFT_DATA.get() as ShiftData<R>
         val stack = getFiberStack(Fiber.currentFiber())
         val resetOffset = getStackPointer(stack) - 1
         val primitiveStack = getPrimitiveStack(stack)
@@ -130,6 +129,7 @@ class ResumeBlock<A, R>(
         // 1125899906842624
         primitiveStack[executeStackOffset] = setPrevNumSlots(setNumSlots(setEntry(0, 1), 0), 0)
         SHIFT_RESULT.set(argument)
+        RESET_DATA.set(ResetData(resetStackOffset))
         System.arraycopy(shiftPrimitiveStack, 0, primitiveStack, resetStackOffset, shiftPrimitiveStack.size)
         System.arraycopy(shiftObjectStack, 0, objectStack, resetStackOffset, shiftObjectStack.size)
         throw yieldException
@@ -155,9 +155,11 @@ fun <A, R> ResetToken<R>.shift_(block: SuspendableBlock<SuspendableBlock<A, R>, 
     if (block == block) {
         val stack = getFiberStack(Fiber.currentFiber())
         val primitiveStack = getPrimitiveStack(stack)
+        val stackOffset = RESET_DATA.get()!!.stackOffset
+        RESET_DATA.remove()
         val resetRecord = primitiveStack[stackOffset]
         primitiveStack[stackOffset] = setEntry(resetRecord, getEntry(resetRecord) + 1)
-        SHIFT_TOKEN.set(ShiftToken(getStackPointer(stack) - 1, block as SuspendableBlock<SuspendableBlock<*, Any?>, Any?>))
+        SHIFT_DATA.set(ShiftData(getStackPointer(stack) - 1, block as SuspendableBlock<SuspendableBlock<*, Any?>, Any?>))
         throw yieldException
     } else {
         Fiber.yield()
@@ -186,22 +188,26 @@ fun main(args: Array<String>) {
     scheduler.newFiber @Suspendable {
         fiber = Fiber.currentFiber()
 
-        val strings = listM<String> {
-            val number = bind(listOf(1, 2, 3))
-            listOf(number.toString())
-        }
 
-        println(strings)
+
+//        val cartesian = listM<Pair<Int, Int>> {
+//            val a = bind(listOf(1, 2))
+//            val b = bind(listOf(3, 4))
+//            listOf(a to b)
+//        }
+//
+//        println(cartesian)
 
         val result = Qont.reset<Int> @Suspendable {
-            val str = 1 +
-                    Qont.shift<Int, Int>(it) @Suspendable { cont ->
-                        val bello = cont(2)
-                        val chello = cont(3)
-                        bello + chello
-                    }
-            println(str)
-            str
+            val a = 1 + Qont.shift<Int, Int>(it) @Suspendable { cont ->
+                cont(2) + cont(40)
+            }
+            println(a)
+            val b = 2 + Qont.shift<Int, Int>(it) @Suspendable { cont ->
+                cont(3)
+            }
+            println(b)
+            a + b
         }
         println(result)
     }.start().get()
