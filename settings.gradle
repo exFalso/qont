@@ -1,2 +1,3 @@
-rootProject.name = 'qond'
-
+rootProject.name = 'qont'
+include 'qont'
+include 'monad:list'
