@@ -3,8 +3,7 @@ package net.exfalso.qont
 import co.paralleluniverse.fibers.Suspendable
 import co.paralleluniverse.strands.SuspendableCallable
 import com.google.common.collect.Lists
-import net.exfalso.monad.list.amb
-import net.exfalso.monad.list.guard
+import net.exfalso.monad.list.Amb
 import net.exfalso.qont.Qont.*
 
 
@@ -69,15 +68,12 @@ fun shiftResetWorks() {
 
         checkInstrumented()
 
-
-        reset(SuspendableCallable @Suspendable {
-            checkInstrumented()
-            val a = amb(Lists.newArrayList(1, 2, 3, 4, 5, 6))
-            guard(false)
+        Amb._do<Int> @Suspendable {
+            val a = it.bind(Lists.newArrayList(1, 2, 3, 4, 5, 6))
+            it.guard(false)
             println(a)
             Lists.newArrayList<Int>()
-        })
-
+        }
 
         0
     })

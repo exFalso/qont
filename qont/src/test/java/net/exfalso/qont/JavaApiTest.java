@@ -3,19 +3,11 @@ package net.exfalso.qont;
 import co.paralleluniverse.fibers.SuspendExecution;
 import co.paralleluniverse.fibers.Suspendable;
 import com.google.common.collect.Lists;
-import kotlin.ranges.IntRange;
-import kotlin.streams.StreamsKt;
+import net.exfalso.monad.list.Amb;
 import org.junit.Test;
 
 import java.util.List;
-import java.util.Spliterator;
-import java.util.Spliterators;
-import java.util.stream.IntStream;
-import java.util.stream.StreamSupport;
 
-import static java.util.Collections.emptyList;
-import static net.exfalso.monad.list.ListMonad.amb;
-import static net.exfalso.monad.list.ListMonad.guard;
 import static net.exfalso.qont.Qont.*;
 
 public class JavaApiTest {
@@ -58,9 +50,9 @@ public class JavaApiTest {
              *  .. second item returns ..
              */
 
-            List<Integer> evens = reset(() -> {
-                Integer a = amb(new IntRange(1, 100));
-                guard(a % 2 == 0);
+            List<Integer> evens = Amb._do((amb) -> {
+                Integer a = amb.bind(Lists.newArrayList(1, 2, 3, 4, 5, 6));
+                amb.guard(a % 2 == 0);
                 return Lists.newArrayList(a);
             });
             System.out.println(evens);
